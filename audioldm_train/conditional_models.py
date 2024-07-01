@@ -1336,6 +1336,99 @@ class CLAPAudioEmbeddingClassifierFreev2(nn.Module):
         return {k: v.squeeze(0) for k, v in result.items()}
 
 
+class CLAPAudioEEGEmbeddingClassifier(nn.Module):
+    def __init__(
+        self,
+        wav2vec_model,
+        eeg_model,
+        sampling_rate=16000,
+        unconditional_prob=0.1,
+        random_mute=False,
+        max_random_mute_portion=0.5,
+        training_mode=True,
+    ):
+        super().__init__()
+        self.device = "cpu"  # Assuming CPU for simplicity
+        self.wav2vec_model = wav2vec_model
+        self.eeg_model = eeg_model
+        self.sampling_rate = sampling_rate
+        self.unconditional_prob = unconditional_prob
+        self.random_mute = random_mute
+        self.max_random_mute_portion = max_random_mute_portion
+        self.training_mode = training_mode
+
+        self.model.eval()  # Assuming models are already in eval mode
+
+        self.unconditional_token = None
+
+    def get_unconditional_condition(self, batchsize):
+        if self.unconditional_token is None:
+            self.build_unconditional_emb()
+
+        return torch.cat([self.unconditional_token.unsqueeze(0)] * batchsize, dim=0)
+
+    def batch_to_list(self, batch):
+        return batch.tolist()
+
+    def make_decision(self, probability):
+        if float(torch.rand(1)) < probability:
+            return True
+        else:
+            return False
+
+    def random_uniform(self, start, end):
+        val = torch.rand(1).item()
+        return start + (end - start) * val
+
+    def _random_mute(self, waveform):
+        t_steps = waveform.size(-1)
+        for i in range(waveform.size(0)):
+            mute_size = int(self.random_uniform(0, end=int(t_steps * self.max_random_mute_portion)))
+            mute_start = int(self.random_uniform(0, t_steps - mute_size))
+            waveform[i, mute_start : mute_start + mute_size] = 0
+        return waveform
+
+    def build_unconditional_emb(self):
+        # Here, we can decide what the unconditional token should be for EEG embeddings
+        # For simplicity, let's assume it's zeros
+        self.unconditional_token = torch.zeros(1, 512).to(self.device)
+
+    def cos_similarity(self, waveform, eeg_embedding):
+        audio_emb = self.wav2vec_model(waveform)
+        eeg_emb = self.eeg_model(eeg_embedding)
+        similarity = F.cosine_similarity(audio_emb, eeg_emb, dim=1)
+        return similarity
+
+    def forward(self, batch):
+        if not self.training_mode:
+            print("The pretrained CLAP model should always be in eval mode.")
+
+        if self.unconditional_token is None:
+            self.build_unconditional_emb()
+
+        if self.random_mute:
+            batch = self._random_mute(batch)
+
+        if self.sampling_rate != 48000:
+            batch = torchaudio.functional.resample(batch, orig_freq=self.sampling_rate, new_freq=48000)
+
+        audio_data = batch.squeeze(1)
+        audio_emb = self.wav2vec_model(audio_data)
+
+        # Example of using EEG embedding
+        # Assuming eeg_embedding is provided as input
+        eeg_embedding = torch.randn(batch.size(0), 512).to(self.device)
+        eeg_emb = self.eeg_model(eeg_embedding)
+
+        embed = torch.cat([audio_emb, eeg_emb], dim=1)
+
+        for i in range(embed.size(0)):
+            if self.make_decision(self.unconditional_prob):
+                embed[i] = self.unconditional_token
+
+        return embed
+
+
 if __name__ == "__main__":
     model = CLAPAudioEmbeddingClassifierFreev2(
         pretrained_path="/mnt/bn/lqhaoheliu/exps/checkpoints/audioldm/ckpt/CLAP.pt",
