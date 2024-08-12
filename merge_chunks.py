@@ -13,7 +13,7 @@ def main():
     for output_dir in output_dirs:
         # Determine the appropriate output file based on the type of chunks found
         if any(f.startswith("dataset.zip.part") for f in os.listdir(output_dir)):
-            output_file = "data/checkpoints/reassembled_dataset.zip"
+            output_file = "data/dataset/reassembled_dataset.zip"
             parts = sorted([os.path.join(output_dir, f) for f in os.listdir(output_dir) if f.startswith("dataset.zip.part")])
         elif any(f.startswith("checkpoints.zip.part") for f in os.listdir(output_dir)):
             output_file = "data/checkpoints/reassembled_checkpoints.zip"
