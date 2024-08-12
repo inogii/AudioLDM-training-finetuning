@@ -1164,16 +1164,11 @@ class LatentDiffusion(DDPM):
     def get_learned_conditioning(self, c, key, unconditional_cfg):
         assert key in self.cond_stage_model_metadata.keys()
 
-        # Classifier-free guidance
         if not unconditional_cfg:
-            c = self.cond_stage_models[
-                self.cond_stage_model_metadata[key]["model_idx"]
-            ](c)
+            c = self.cond_stage_models[self.cond_stage_model_metadata[key]["model_idx"]](c)
         else:
-            # when the cond_stage_key is "all", pick one random element out
             if isinstance(c, dict):
                 c = c[list(c.keys())[0]]
-
             if isinstance(c, torch.Tensor):
                 batchsize = c.size(0)
             elif isinstance(c, list):
@@ -1181,11 +1176,10 @@ class LatentDiffusion(DDPM):
             else:
                 raise NotImplementedError()
 
-            c = self.cond_stage_models[
-                self.cond_stage_model_metadata[key]["model_idx"]
-            ].get_unconditional_condition(batchsize)
+            c = self.cond_stage_models[self.cond_stage_model_metadata[key]["model_idx"]].get_unconditional_condition(batchsize)
 
         return c
+
 
     def get_input(
         self,

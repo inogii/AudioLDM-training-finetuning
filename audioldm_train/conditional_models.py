@@ -28,6 +28,11 @@ from audioldm_train.modules.audiomae.sequence_gen.sequence_input import (
 import numpy as np
 from audioldm_train.modules.audiomae.sequence_gen.model import Prenet
 
+ # Instantiate the EEG model
+from omegaconf import OmegaConf
+from audioldm_train.bm_models import SimpleConv
+from transformers import Wav2Vec2Model, Wav2Vec2FeatureExtractor
+
 """
 The model forward function can return three types of data:
 1. tensor: used directly as conditioning signal
@@ -1339,8 +1344,6 @@ class CLAPAudioEmbeddingClassifierFreev2(nn.Module):
 class CLAPAudioEEGEmbeddingClassifier(nn.Module):
     def __init__(
         self,
-        wav2vec_model,
-        eeg_model,
         sampling_rate=16000,
         unconditional_prob=0.1,
         random_mute=False,
@@ -1349,18 +1352,40 @@ class CLAPAudioEEGEmbeddingClassifier(nn.Module):
     ):
         super().__init__()
         self.device = "cpu"  # Assuming CPU for simplicity
-        self.wav2vec_model = wav2vec_model
-        self.eeg_model = eeg_model
+        self.wav2vec_model, self.feature_extractor = self.instantiate_wav2vec_model()
+        self.eeg_model = self.instantiate_eeg_model()
         self.sampling_rate = sampling_rate
         self.unconditional_prob = unconditional_prob
         self.random_mute = random_mute
         self.max_random_mute_portion = max_random_mute_portion
         self.training_mode = training_mode
 
-        self.model.eval()  # Assuming models are already in eval mode
-
         self.unconditional_token = None
 
+    def instantiate_wav2vec_model(self):
+        # Load the Wav2Vec2 model and feature_extractor from Hugging Face
+        print("Loading Wav2Vec2 model...")
+        model = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-large-xlsr-53").to(self.device)
+        feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained("facebook/wav2vec2-large-xlsr-53")
+        print("Successfully loaded Wav2Vec2 model.")
+        return model, feature_extractor
+    
+    def instantiate_eeg_model(self):
+        
+        print('Loading EEG model...')
+        args_simpleconv = OmegaConf.load('models/eeg/simple_conv_params.yaml')
+        more_config = OmegaConf.load('models/eeg/simple_conv_config.yaml')
+        in_channels = more_config.in_channels 
+        model_chout = more_config.out_channels
+        n_subjects = more_config.n_subjects
+        model = SimpleConv(in_channels=in_channels, out_channels=model_chout, n_subjects=n_subjects, **args_simpleconv)
+
+        model.load_state_dict(torch.load('models/eeg/eeg_model.pth'))
+
+        print('Successfully loaded EEG model.')
+
+        return model
+    
     def get_unconditional_condition(self, batchsize):
         if self.unconditional_token is None:
             self.build_unconditional_emb()
@@ -1391,7 +1416,7 @@ class CLAPAudioEEGEmbeddingClassifier(nn.Module):
     def build_unconditional_emb(self):
         # Here, we can decide what the unconditional token should be for EEG embeddings
         # For simplicity, let's assume it's zeros
-        self.unconditional_token = torch.zeros(1, 512).to(self.device)
+        self.unconditional_token = torch.zeros(1, 1024).to(self.device)
 
     def cos_similarity(self, waveform, eeg_embedding):
         audio_emb = self.wav2vec_model(waveform)
@@ -1412,32 +1437,30 @@ class CLAPAudioEEGEmbeddingClassifier(nn.Module):
         if self.sampling_rate != 48000:
             batch = torchaudio.functional.resample(batch, orig_freq=self.sampling_rate, new_freq=48000)
 
-        audio_data = batch.squeeze(1)
-        audio_emb = self.wav2vec_model(audio_data)
+        if self.embed_mode == 'audio':
+            audio_data = batch.squeeze(1)
+            inputs = self.processor(audio_data, sampling_rate=self.sampling_rate, return_tensors="pt", padding=True)
+            inputs = inputs.input_values.to(self.device)
+            audio_emb = self.wav2vec_model(inputs).last_hidden_state
+            embedding = audio_emb.unsqueeze(1)
+        elif self.embed_mode == 'eeg':
+            eeg_extract = batch
+            eeg_emb = self.eeg_model(eeg_extract)
+            embedding = eeg_emb.unsqueeze(1)
 
-        # Example of using EEG embedding
-        # Assuming eeg_embedding is provided as input
-        eeg_embedding = torch.randn(batch.size(0), 512).to(self.device)
-        eeg_emb = self.eeg_model(eeg_embedding)
-
-        embed = torch.cat([audio_emb, eeg_emb], dim=1)
-
-        for i in range(embed.size(0)):
-            if self.make_decision(self.unconditional_prob):
-                embed[i] = self.unconditional_token
-
-        return embed
+        return embedding
 
 
 if __name__ == "__main__":
-    model = CLAPAudioEmbeddingClassifierFreev2(
-        pretrained_path="/mnt/bn/lqhaoheliu/exps/checkpoints/audioldm/ckpt/CLAP.pt",
-        embed_mode="text",
-        amodel="HTSAT-tiny",
-    )
-    # data = torch.randn((6, 1, int(16000*10.24)))
-    data = ["text", "text"]
-    res = model(data)
-    import ipdb
+    # model = CLAPAudioEmbeddingClassifierFreev2(
+    #     pretrained_path="/mnt/bn/lqhaoheliu/exps/checkpoints/audioldm/ckpt/CLAP.pt",
+    #     embed_mode="text",
+    #     amodel="HTSAT-tiny",
+    # )
+    # # data = torch.randn((6, 1, int(16000*10.24)))
+    # data = ["text", "text"]
+    # res = model(data)
+    # import ipdb
 
-    ipdb.set_trace()
+    # ipdb.set_trace()
+    model = CLAPAudioEEGEmbeddingClassifier()
