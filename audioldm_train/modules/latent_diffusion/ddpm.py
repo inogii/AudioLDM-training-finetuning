@@ -1758,21 +1758,27 @@ class LatentDiffusion(DDPM):
                     savepath, "%s_%s_%s.wav" % (self.global_step, i, name)
                 )
             elif type(name) is list:
+                if i < len(name):
+                    current_name = name[i]
+                else:
+                    current_name = "output_%d" % i  # Default name if index is out of range
                 path = os.path.join(
                     savepath,
                     "%s.wav"
                     % (
-                        os.path.basename(name[i])
-                        if (not ".wav" in name[i])
-                        else os.path.basename(name[i]).split(".")[0]
+                        os.path.basename(current_name)
+                        if (not ".wav" in current_name)
+                        else os.path.basename(current_name).split(".")[0]
                     ),
                 )
             else:
-                raise NotImplementedError
+                raise NotImplementedError("Unsupported name type")
+            
             todo_waveform = waveform[i, 0]
             todo_waveform = (
                 todo_waveform / np.max(np.abs(todo_waveform))
-            ) * 0.8  # Normalize the energy of the generation output
+            ) * 0.8  # Normalize the energy of the generated output
+            
             sf.write(path, todo_waveform, samplerate=self.sampling_rate)
 
     @torch.no_grad()
