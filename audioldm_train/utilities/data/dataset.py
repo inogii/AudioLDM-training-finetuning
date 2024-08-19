@@ -632,3 +632,143 @@ if __name__ == "__main__":
 
         ipdb.set_trace()
         # pass
+
+
+class EEGDataset(Dataset):
+    def __init__(
+        self,
+        config=None,
+        split="train",
+        waveform_only=False,
+        add_ons=[],
+        dataset_json=None,
+    ):
+        """
+        Dataset that manages audio recordings and EEG embeddings.
+        """
+        self.config = config
+        self.split = split
+        self.pad_wav_start_sample = 0  # If none, random choose
+        self.trim_wav = False
+        self.waveform_only = waveform_only
+        self.add_ons = [eval(x) for x in add_ons]
+        print("Add-ons:", self.add_ons)
+
+        self.build_setting_parameters()
+
+        # For an external dataset
+        if dataset_json is not None:
+            self.data = dataset_json["data"]
+            self.id2label, self.index_dict, self.num2label = {}, {}, {}
+        else:
+            self.metadata_root = load_json(self.config["metadata_root"])
+            self.dataset_name = self.config["data"][self.split]
+            assert split in self.config["data"].keys(), (
+                "The dataset split %s you specified is not present in the config. You can choose from %s"
+                % (split, self.config["data"].keys())
+            )
+            self.build_dataset()
+            self.build_id_to_label()
+
+        self.build_dsp()
+        self.label_num = len(self.index_dict)
+        print("Dataset initialized finished")
+
+    def __getitem__(self, index):
+        (
+            fname,
+            waveform,
+            stft,
+            log_mel_spec,
+            label_vector,
+            (datum, mix_datum),
+            random_start,
+        ) = self.feature_extraction(index)
+
+        # Load the EEG embedding from the path stored in the dataset entry
+        eeg_embedding = self.load_embedding(index)
+
+        data = {
+            "eeg_embedding": eeg_embedding,  # Load EEG embedding instead of text/captions
+            "fname": fname,
+            "label_vector": "" if (label_vector is None) else label_vector.float(),
+            "waveform": "" if (waveform is None) else waveform.float(),
+            "stft": "" if (stft is None) else stft.float(),
+            "log_mel_spec": "" if (log_mel_spec is None) else log_mel_spec.float(),
+            "duration": self.duration,
+            "sampling_rate": self.sampling_rate,
+            "random_start_sample_in_original_audio_file": random_start,
+        }
+
+        for add_on in self.add_ons:
+            data.update(add_on(self.config, data, self.data[index]))
+
+        return data
+    
+    def load_eeg_embedding(file_path):
+        """Loads the EEG embedding tensor from a file."""
+        try:
+            eeg_embedding = torch.load(file_path, map_location='cpu')
+            return eeg_embedding
+        except Exception as e:
+            print(f"Error loading EEG embedding: {e}")
+            sys.exit(1)
+
+
+    def load_embedding(self, index):
+        """Load the EEG embedding file based on the path provided in the dataset."""
+        datum = self.data[index]
+        embedding_path = datum["eeg_embedding"]  # Path to the EEG embedding file
+
+        if os.path.exists(embedding_path):
+            embedding = self.load_eeg_embedding(embedding_path)  # Use the provided function
+            return embedding
+        else:
+            raise FileNotFoundError(f"Embedding file {embedding_path} not found")
+
+    def feature_extraction(self, index):
+        if index > len(self.data) - 1:
+            print(
+                "The index of the dataloader is out of range: %s/%s"
+                % (index, len(self.data))
+            )
+            index = random.randint(0, len(self.data) - 1)
+
+        # Read wave file and extract feature
+        while True:
+            try:
+                label_indices = np.zeros(self.label_num, dtype=np.float32)
+                datum = self.data[index]
+                (
+                    log_mel_spec,
+                    stft,
+                    waveform,
+                    random_start,
+                ) = self.read_audio_file(datum["wav"])
+                mix_datum = None
+                if self.label_num > 0 and "labels" in datum.keys():
+                    for label_str in datum["labels"].split(","):
+                        label_indices[int(self.index_dict[label_str])] = 1.0
+
+                # If the key "label" is not in the metadata, return all zero vector
+                label_indices = torch.FloatTensor(label_indices)
+                break
+            except Exception as e:
+                index = (index + 1) % len(self.data)
+                print(
+                    "Error encountered during audio feature extraction: ", e, datum["wav"]
+                )
+                continue
+
+        fname = datum["wav"]
+        waveform = torch.FloatTensor(waveform)
+
+        return (
+            fname,
+            waveform,
+            stft,
+            log_mel_spec,
+            label_indices,
+            (datum, mix_datum),
+            random_start,
+        )

@@ -16,7 +16,7 @@ import torch
 
 from tqdm import tqdm
 from pytorch_lightning.strategies.ddp import DDPStrategy
-from audioldm_train.utilities.data.dataset import AudioDataset
+from audioldm_train.utilities.data.dataset import AudioDataset, EEGDataset
 
 from torch.utils.data import DataLoader
 from pytorch_lightning import Trainer, seed_everything
@@ -57,7 +57,7 @@ def main(configs, config_yaml_path, exp_group_name, exp_name, perform_validation
     else:
         dataloader_add_ons = []
 
-    dataset = AudioDataset(configs, split="train", add_ons=dataloader_add_ons)
+    dataset = EEGDataset(configs, split="train", add_ons=dataloader_add_ons)
 
     loader = DataLoader(
         dataset,
@@ -67,12 +67,18 @@ def main(configs, config_yaml_path, exp_group_name, exp_name, perform_validation
         shuffle=True,
     )
 
+    # print a sample of the loader
+    for i, batch in enumerate(loader):
+        with open("sample_batch.txt", "w") as f:
+            f.write(str(batch))
+        break
+
     print(
         "The length of the dataset is %s, the length of the dataloader is %s, the batchsize is %s"
         % (len(dataset), len(loader), batch_size)
     )
 
-    val_dataset = AudioDataset(configs, split="test", add_ons=dataloader_add_ons)
+    val_dataset = EEGDataset(configs, split="test", add_ons=dataloader_add_ons)
 
     val_loader = DataLoader(
         val_dataset,

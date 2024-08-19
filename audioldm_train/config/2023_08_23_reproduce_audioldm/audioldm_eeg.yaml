@@ -15,10 +15,9 @@ variables:
   warmup_steps: &warmup_steps 2000
 
 data: 
-  train: ["audiocaps"]
-  val: "audiocaps"
-  test: "audiocaps"
-  class_label_indices: "audioset_eval_subset"
+  train: ["audioeeg"]
+  val: "audioeeg"
+  test: "audioeeg"
   dataloader_add_ons: ["waveform_rs_48k"] 
 
 step:

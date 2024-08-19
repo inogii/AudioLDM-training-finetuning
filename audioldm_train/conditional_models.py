@@ -1444,9 +1444,10 @@ class CLAPAudioEEGEmbeddingClassifier(nn.Module):
             audio_emb = self.wav2vec_model(inputs).last_hidden_state
             embedding = audio_emb.unsqueeze(1)
         elif self.embed_mode == 'eeg':
-            eeg_extract = batch
-            eeg_emb = self.eeg_model(eeg_extract)
-            embedding = eeg_emb.unsqueeze(1)
+            # using precomputed embeddings directly instead of passing the recordings to the model
+            embedding = batch
+            # eeg_emb = self.eeg_model(eeg_extract)
+            # embedding = eeg_emb.unsqueeze(1)
 
         return embedding
 
