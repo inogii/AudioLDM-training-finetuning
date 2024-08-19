@@ -515,9 +515,9 @@ class DDPM(pl.LightningModule):
     def get_input(self, batch, k):
         # fbank, log_magnitudes_stft, label_indices, fname, waveform, clip_label, text = batch
         # fbank, stft, label_indices, fname, waveform, text = batch
-        fname, text, label_indices, waveform, stft, fbank = (
+        fname, embedding, label_indices, waveform, stft, fbank = (
             batch["fname"],
-            batch["text"],
+            batch["embedding"],
             batch["label_vector"],
             batch["waveform"],
             batch["stft"],
@@ -543,7 +543,7 @@ class DDPM(pl.LightningModule):
         ret["stft"] = stft.to(memory_format=torch.contiguous_format).float()
         # ret["clip_label"] = clip_label.to(memory_format=torch.contiguous_format).float()
         ret["waveform"] = waveform.to(memory_format=torch.contiguous_format).float()
-        ret["text"] = list(text)
+        ret["embedding"] = embedding
         ret["fname"] = fname
 
         for key in batch.keys():
@@ -676,7 +676,7 @@ class DDPM(pl.LightningModule):
                     "embed_mode_orig"
                 ] = self.cond_stage_models[model_idx].embed_mode
                 if torch.randn(1).item() < 0.5:
-                    self.cond_stage_model_metadata[key]["cond_stage_key"] = "text"
+                    self.cond_stage_model_metadata[key]["cond_stage_key"] = "embedding"
                     self.cond_stage_models[model_idx].embed_mode = "text"
                 else:
                     self.cond_stage_model_metadata[key]["cond_stage_key"] = "waveform"
@@ -1229,7 +1229,9 @@ class LatentDiffusion(DDPM):
                 # The original data for conditioning
                 # If cond_model_key is "all", that means the conditional model need all the information from a batch
 
-                if cond_stage_key != "all":
+                if cond_stage_key == "embedding":
+                    xc = batch
+                elif cond_stage_key != "all":
                     xc = super().get_input(batch, cond_stage_key)
                     if type(xc) == torch.Tensor:
                         xc = xc.to(self.device)
@@ -1887,7 +1889,7 @@ class LatentDiffusion(DDPM):
 
                 c = self.filter_useful_cond_dict(c)
 
-                text = super().get_input(batch, "text")
+                text = super().get_input(batch, "embedding")
 
                 # Generate multiple samples
                 batch_size = z.shape[0] * n_gen
@@ -1970,6 +1972,7 @@ class DiffusionWrapper(pl.LightningModule):
                 or "hybrid" in key
                 or "film" in key
                 or "noncond" in key
+                or "eeg" in key
             ):
                 continue
             else:
@@ -1979,8 +1982,8 @@ class DiffusionWrapper(pl.LightningModule):
 
     def forward(self, x, t, cond_dict: dict = {}):
 
-        x = x.contiguous()
-        t = t.contiguous()
+        x = x.contiguous().to('cuda')  # Ensure x is on CUDA
+        t = t.contiguous().to('cuda')  # Ensure t is on CUDA
 
         # x with condition (or maybe not)
         xc = x
@@ -1991,12 +1994,33 @@ class DiffusionWrapper(pl.LightningModule):
         conditional_keys = cond_dict.keys()
 
         for key in conditional_keys:
-            if "concat" in key:
-                xc = torch.cat([x, cond_dict[key].unsqueeze(1)], dim=1)
+            if "concat" in key or "eeg" in key:
+                
+                c = cond_dict[key].squeeze(1).to('cuda')
+                print(x.shape)
+                print(c.shape)
+
+                # Write tensor shapes to a file (shapes.txt)
+                with open('shapes.txt', 'w') as f:
+                    f.write(f"x shape: {x.shape}\n")
+                    f.write(f"c shape (before reshape): {c.shape}\n")
+                # Step 1: Reshape condition to prepare for broadcasting along spatial dimensions (from [24, 1, 1, 1024] to [24, 1024, 1, 1])
+                # c = c.permute(0, 3, 1, 2)  # Now [24, 1024, 1, 1]
+                c = c.unsqueeze(2).unsqueeze(3)  # Now [24, 1024, 1, 1]
+
+                # Step 2: Broadcast `c` to match spatial dimensions of `x`
+                c = c.repeat(1, 1, 8, 16)  # Now [24, 1024, 8, 16]
+
+                # # Step 2: Repeat condition to match the spatial size of the latent tensor (from [24, 1024, 1, 1] to [24, 1024, 256, 16])
+                # c = c.repeat(1, 1, 256, 16)  # Now [24, 1024, 256, 16]
+
+                xc = torch.cat([x, c], dim=1)
             elif "film" in key:
+                c = cond_dict[key].squeeze(1).to('cuda')
                 if y is None:
-                    y = cond_dict[key].squeeze(1)
+                    y = c
                 else:
+                    y.to('cuda')
                     y = torch.cat([y, cond_dict[key].squeeze(1)], dim=-1)
             elif "crossattn" in key:
                 # assert context is None, "You can only have one context matrix, got %s" % (cond_dict.keys())
@@ -2014,8 +2038,9 @@ class DiffusionWrapper(pl.LightningModule):
                     context, attn_mask = cond_dict[key]
 
                 # The input to the UNet model is a list of context matrix
-                context_list.append(context)
-                attn_mask_list.append(attn_mask)
+                context_list.append(context.to('cuda'))  # Ensure context is on CUDA
+                attn_mask_list.append(attn_mask.to('cuda'))  # Ensure attn_mask is on CUDA
+
 
             elif (
                 "noncond" in key

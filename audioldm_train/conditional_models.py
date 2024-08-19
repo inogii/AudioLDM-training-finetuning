@@ -1349,6 +1349,7 @@ class CLAPAudioEEGEmbeddingClassifier(nn.Module):
         random_mute=False,
         max_random_mute_portion=0.5,
         training_mode=True,
+        embed_mode="audio"
     ):
         super().__init__()
         self.device = "cpu"  # Assuming CPU for simplicity
@@ -1359,6 +1360,7 @@ class CLAPAudioEEGEmbeddingClassifier(nn.Module):
         self.random_mute = random_mute
         self.max_random_mute_portion = max_random_mute_portion
         self.training_mode = training_mode
+        self.embed_mode = embed_mode
 
         self.unconditional_token = None
 
@@ -1425,6 +1427,7 @@ class CLAPAudioEEGEmbeddingClassifier(nn.Module):
         return similarity
 
     def forward(self, batch):
+        print(batch)
         if not self.training_mode:
             print("The pretrained CLAP model should always be in eval mode.")
 
@@ -1434,21 +1437,22 @@ class CLAPAudioEEGEmbeddingClassifier(nn.Module):
         if self.random_mute:
             batch = self._random_mute(batch)
 
-        if self.sampling_rate != 48000:
-            batch = torchaudio.functional.resample(batch, orig_freq=self.sampling_rate, new_freq=48000)
+        if self.sampling_rate != 16000:
+            print(self.sampling_rate)
+            batch = torchaudio.functional.resample(batch, orig_freq=self.sampling_rate, new_freq=16000)
 
         if self.embed_mode == 'audio':
-            audio_data = batch.squeeze(1)
-            inputs = self.processor(audio_data, sampling_rate=self.sampling_rate, return_tensors="pt", padding=True)
-            inputs = inputs.input_values.to(self.device)
-            audio_emb = self.wav2vec_model(inputs).last_hidden_state
-            embedding = audio_emb.unsqueeze(1)
-        elif self.embed_mode == 'eeg':
-            # using precomputed embeddings directly instead of passing the recordings to the model
-            embedding = batch
-            # eeg_emb = self.eeg_model(eeg_extract)
-            # embedding = eeg_emb.unsqueeze(1)
+            embedding = batch["audio_embedding"]
 
+
+        elif self.embed_mode == 'embedding':
+            print('Using EEG embedding stuff')
+
+            # Assuming batch size and input embedding shape are like [1, 1, 8, 1024, 343], you need to reshape it
+            embedding = batch["embedding"]
+            
+        embedding.to('cuda')
+        
         return embedding
 
 

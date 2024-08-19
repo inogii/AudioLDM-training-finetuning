@@ -68,10 +68,10 @@ def main(configs, config_yaml_path, exp_group_name, exp_name, perform_validation
     )
 
     # print a sample of the loader
-    for i, batch in enumerate(loader):
-        with open("sample_batch.txt", "w") as f:
-            f.write(str(batch))
-        break
+    # for i, batch in enumerate(loader):
+    #     with open("sample_batch.txt", "w") as f:
+    #         f.write(str(batch))
+    #     break
 
     print(
         "The length of the dataset is %s, the length of the dataloader is %s, the batchsize is %s"
