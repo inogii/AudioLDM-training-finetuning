@@ -30,7 +30,6 @@ from audioldm_train.modules.audiomae.sequence_gen.model import Prenet
 
  # Instantiate the EEG model
 from omegaconf import OmegaConf
-from audioldm_train.bm_models import SimpleConv
 from transformers import Wav2Vec2Model, Wav2Vec2FeatureExtractor
 
 """
@@ -1349,12 +1348,12 @@ class CLAPAudioEEGEmbeddingClassifier(nn.Module):
         random_mute=False,
         max_random_mute_portion=0.5,
         training_mode=True,
-        embed_mode="audio"
+        embed_mode="eeg"
     ):
         super().__init__()
         self.device = "cpu"  # Assuming CPU for simplicity
-        self.wav2vec_model, self.feature_extractor = self.instantiate_wav2vec_model()
-        self.eeg_model = self.instantiate_eeg_model()
+        # self.wav2vec_model, self.feature_extractor = self.instantiate_wav2vec_model()
+        # self.eeg_model = self.instantiate_eeg_model()
         self.sampling_rate = sampling_rate
         self.unconditional_prob = unconditional_prob
         self.random_mute = random_mute
@@ -1380,8 +1379,8 @@ class CLAPAudioEEGEmbeddingClassifier(nn.Module):
         in_channels = more_config.in_channels 
         model_chout = more_config.out_channels
         n_subjects = more_config.n_subjects
-        model = SimpleConv(in_channels=in_channels, out_channels=model_chout, n_subjects=n_subjects, **args_simpleconv)
-
+        #model = SimpleConv(in_channels=in_channels, out_channels=model_chout, n_subjects=n_subjects, **args_simpleconv)
+        model = None
         model.load_state_dict(torch.load('models/eeg/eeg_model.pth'))
 
         print('Successfully loaded EEG model.')
@@ -1427,7 +1426,7 @@ class CLAPAudioEEGEmbeddingClassifier(nn.Module):
         return similarity
 
     def forward(self, batch):
-        print(batch)
+
         if not self.training_mode:
             print("The pretrained CLAP model should always be in eval mode.")
 
@@ -1437,19 +1436,29 @@ class CLAPAudioEEGEmbeddingClassifier(nn.Module):
         if self.random_mute:
             batch = self._random_mute(batch)
 
-        if self.sampling_rate != 16000:
-            print(self.sampling_rate)
-            batch = torchaudio.functional.resample(batch, orig_freq=self.sampling_rate, new_freq=16000)
+        # if self.sampling_rate != 16000:
+        #     print(self.sampling_rate)
+        #     batch = torchaudio.functional.resample(batch, orig_freq=self.sampling_rate, new_freq=16000)
 
-        if self.embed_mode == 'audio':
+        if self.embed_mode == 'audio' or self.embed_mode == 'audio_embedding':
             embedding = batch["audio_embedding"]
+            with open('embeddings.txt', 'a') as f:
+                f.write(f"audio embedding shape: {embedding.shape}\n")
 
-
-        elif self.embed_mode == 'embedding':
+        elif self.embed_mode == 'embedding' or self.embed_mode == 'eeg' or self.embed_mode == 'text':
             print('Using EEG embedding stuff')
 
             # Assuming batch size and input embedding shape are like [1, 1, 8, 1024, 343], you need to reshape it
             embedding = batch["embedding"]
+            with open('embeddings.txt', 'a') as f:
+                f.write(f"eeg embedding shape: {embedding.shape}\n")
+            embedding = embedding.mean(dim=-1)
+            with open('embeddings.txt', 'a') as f:
+                f.write(f"eeg embedding shape mean: {embedding.shape}\n")
+            # embedding = embedding.squeeze(1)
+            # with open('embeddings.txt', 'a') as f:
+            #     f.write(f"eeg embedding shape squeezed: {embedding.shape}\n")
+
             
         embedding.to('cuda')
         

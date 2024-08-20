@@ -512,12 +512,19 @@ class DDPM(pl.LightningModule):
         ).long()
         return self.p_losses(x, t, *args, **kwargs)
 
+    # Function to log output to a file
+    def log_to_file(self, log_message, file_path="shape_logs.txt"):
+        with open(file_path, "a") as log_file:
+            log_file.write(log_message + "\n")
+
+
     def get_input(self, batch, k):
         # fbank, log_magnitudes_stft, label_indices, fname, waveform, clip_label, text = batch
         # fbank, stft, label_indices, fname, waveform, text = batch
-        fname, embedding, label_indices, waveform, stft, fbank = (
+        fname, embedding, audio_embedding, label_indices, waveform, stft, fbank = (
             batch["fname"],
             batch["embedding"],
+            batch["audio_embedding"],
             batch["label_vector"],
             batch["waveform"],
             batch["stft"],
@@ -545,10 +552,16 @@ class DDPM(pl.LightningModule):
         ret["waveform"] = waveform.to(memory_format=torch.contiguous_format).float()
         ret["embedding"] = embedding
         ret["fname"] = fname
+        ret["audio"] = audio_embedding
 
         for key in batch.keys():
             if key not in ret.keys():
                 ret[key] = batch[key]
+
+        # Log the shapes of the tensors
+        self.log_to_file(f"Batch size in get_input (fbank): {fbank.shape}")
+        self.log_to_file(f"Batch size in get_input (stft): {stft.shape}")
+        self.log_to_file(f"Batch size in get_input (waveform): {waveform.shape}")
 
         return ret[k]
 
@@ -1994,7 +2007,7 @@ class DiffusionWrapper(pl.LightningModule):
         conditional_keys = cond_dict.keys()
 
         for key in conditional_keys:
-            if "concat" in key or "eeg" in key:
+            if "concat" in key:
                 
                 c = cond_dict[key].unsqueeze(1).to('cuda')
                 print(x.shape)
@@ -2010,13 +2023,21 @@ class DiffusionWrapper(pl.LightningModule):
 
                 c = torch.nn.functional.interpolate(c, size=(256, 16), mode='bilinear', align_corners=False)
 
-                with open('shapes2.txt', 'w') as f:
+                with open('shapes2.txt', 'a') as f:
                     f.write(f"c shape (after reshape): {c.shape}\n")
 
                 xc = torch.cat([x, c], dim=1)
 
-            elif "film" in key:
-                c = cond_dict[key].squeeze(1).to('cuda')
+            elif "film" in key or "eeg" in key:
+                c = cond_dict[key].to('cuda').squeeze(1)
+                with open('shapes2.txt', 'a') as f:
+                    f.write(f"c shape (before reshape): {c.shape}\n")
+
+                # c = torch.nn.functional.adaptive_avg_pool1d(c, 1)
+                # c = c.view(2,1024)
+                # c = c.mean(dim=-1)
+                with open('shapes2.txt', 'a') as f:
+                    f.write(f"c shape (after reshape): {c.shape}\n")
                 if y is None:
                     y = c
                 else:
@@ -2061,6 +2082,9 @@ class DiffusionWrapper(pl.LightningModule):
         #     if y is not None:
         #         print("y", y.size())
         #     self.being_verbosed_once = True
+
+        with open('shapes.txt', 'w') as f:
+            f.write(f'x shape: {str(xc.shape)}, y shape: {str(y.shape)}')
 
         out = self.diffusion_model(
             xc, t, context_list=context_list, y=y, context_attn_mask_list=attn_mask_list

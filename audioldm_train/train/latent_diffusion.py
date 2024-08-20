@@ -58,20 +58,28 @@ def main(configs, config_yaml_path, exp_group_name, exp_name, perform_validation
         dataloader_add_ons = []
 
     dataset = EEGDataset(configs, split="train", add_ons=dataloader_add_ons)
-
+    #dataset = AudioDataset(configs, split='train',add_ons=dataloader_add_ons)
+    
     loader = DataLoader(
         dataset,
         batch_size=batch_size,
-        num_workers=16,
-        pin_memory=True,
+        num_workers=0,
+        pin_memory=False,
         shuffle=True,
     )
 
     # print a sample of the loader
-    # for i, batch in enumerate(loader):
-    #     with open("sample_batch.txt", "w") as f:
-    #         f.write(str(batch))
-    #     break
+    for batch in loader:
+        with open("sample_batch.txt", "w") as f:
+            f.write(str(batch))
+            f.write('\n')
+            f.write(str(batch['waveform'].shape))
+            f.write('\n')
+            f.write(str(batch['log_mel_spec'].shape))
+            f.write('\n')
+            f.write(str(batch['stft'].shape))
+
+        break
 
     print(
         "The length of the dataset is %s, the length of the dataloader is %s, the batchsize is %s"
@@ -82,7 +90,7 @@ def main(configs, config_yaml_path, exp_group_name, exp_name, perform_validation
 
     val_loader = DataLoader(
         val_dataset,
-        batch_size=8,
+        batch_size=batch_size,
     )
 
     # Copy test data

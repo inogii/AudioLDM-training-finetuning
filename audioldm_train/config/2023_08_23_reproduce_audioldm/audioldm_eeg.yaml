@@ -1,4 +1,4 @@
-metadata_root: "./data/dataset/metadata/dataset_root.json"
+metadata_root: "./data2/dataset/metadata/dataset_root.json"
 log_directory: "./log/latent_diffusion"
 project: "audioldm"
 precision: "high"
@@ -18,7 +18,7 @@ data:
   train: ["audioeeg"]
   val: "audioeeg"
   test: "audioeeg"
-  dataloader_add_ons: ["waveform_rs_48k"] 
+  dataloader_add_ons: [] 
 
 step:
   validation_every_n_epochs: 5
@@ -108,7 +108,7 @@ model:
       params:
         image_size: 64 # Ignore this parameter
         # Conditioning
-        extra_film_condition_dim: 512 # If you use film as extra condition, set this parameter. For example if you have two conditioning vectors each have dimension 512, then this number would be 1024
+        extra_film_condition_dim: 1024 # If you use film as extra condition, set this parameter. For example if you have two conditioning vectors each have dimension 512, then this number would be 1024
         # context_dim: 
         # - 1024
         in_channels: *unet_in_channels # The input channel of the UNet model
@@ -127,15 +127,14 @@ model:
         num_head_channels: 32
         use_spatial_transformer: true
         transformer_depth: 1
+        extra_sa_layer: false
     
     cond_stage_config:
       eeg_audio_conditioning:
-        cond_stage_key: audio  # or another key that matches your data
-        conditioning_key: eeg  # or another key depending on your model's logic
+        cond_stage_key: embedding  # or another key that matches your data
+        conditioning_key: film  # or another key depending on your model's logic
         target: audioldm_train.conditional_models.CLAPAudioEEGEmbeddingClassifier
         params:
-          wav2vec_model: path/to/wav2vec_model  # Replace with the actual model or its initialization
-          eeg_model: path/to/eeg_model  # Replace with the actual model or its initialization
           sampling_rate: 16000  # Adjust as needed
           unconditional_prob: 0.1  # As defined in your model
           random_mute: False  # Set this based on your needs
@@ -145,4 +144,4 @@ model:
     evaluation_params:
       unconditional_guidance_scale: 3.5
       ddim_sampling_steps: 200
-      n_candidates_per_samples: 3
+      n_candidates_per_samples: 1
