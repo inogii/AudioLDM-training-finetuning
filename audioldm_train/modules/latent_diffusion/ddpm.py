@@ -1996,7 +1996,7 @@ class DiffusionWrapper(pl.LightningModule):
         for key in conditional_keys:
             if "concat" in key or "eeg" in key:
                 
-                c = cond_dict[key].squeeze(1).to('cuda')
+                c = cond_dict[key].unsqueeze(1).to('cuda')
                 print(x.shape)
                 print(c.shape)
 
@@ -2004,24 +2004,25 @@ class DiffusionWrapper(pl.LightningModule):
                 with open('shapes.txt', 'w') as f:
                     f.write(f"x shape: {x.shape}\n")
                     f.write(f"c shape (before reshape): {c.shape}\n")
-                # Step 1: Reshape condition to prepare for broadcasting along spatial dimensions (from [24, 1, 1, 1024] to [24, 1024, 1, 1])
-                # c = c.permute(0, 3, 1, 2)  # Now [24, 1024, 1, 1]
-                c = c.unsqueeze(2).unsqueeze(3)  # Now [24, 1024, 1, 1]
 
-                # Step 2: Broadcast `c` to match spatial dimensions of `x`
-                c = c.repeat(1, 1, 8, 16)  # Now [24, 1024, 8, 16]
+                c = c.permute(0, 1, 3, 2)  # Shape [24, 1, 1024, 1]
+                c = c.repeat(1, 1, 1, 16)  # Shape [24, 1, 1024, 64]
 
-                # # Step 2: Repeat condition to match the spatial size of the latent tensor (from [24, 1024, 1, 1] to [24, 1024, 256, 16])
-                # c = c.repeat(1, 1, 256, 16)  # Now [24, 1024, 256, 16]
+                c = torch.nn.functional.interpolate(c, size=(256, 16), mode='bilinear', align_corners=False)
+
+                with open('shapes2.txt', 'w') as f:
+                    f.write(f"c shape (after reshape): {c.shape}\n")
 
                 xc = torch.cat([x, c], dim=1)
+
             elif "film" in key:
                 c = cond_dict[key].squeeze(1).to('cuda')
                 if y is None:
                     y = c
                 else:
+                    y = torch.cat([y, c], dim=-1)
                     y.to('cuda')
-                    y = torch.cat([y, cond_dict[key].squeeze(1)], dim=-1)
+
             elif "crossattn" in key:
                 # assert context is None, "You can only have one context matrix, got %s" % (cond_dict.keys())
                 if isinstance(cond_dict[key], dict):
